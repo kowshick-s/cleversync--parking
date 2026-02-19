@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:blue_thermal_printer/blue_thermal_printer.dart';
 import '../providers/app_provider.dart';
 import '../utils/app_theme.dart';
-import '../utils/printer_helper.dart';
 import 'package:uuid/uuid.dart';
 
 // ===================== VEHICLE TYPES SCREEN =====================
@@ -19,7 +17,7 @@ class VehicleTypesScreen extends StatelessWidget {
         title: const Text('Vehicle Types'),
         actions: [
           TextButton.icon(
-            onPressed: () => _showAddDialog(context),
+            onPressed: () => _showVehicleTypeDialog(context, null),
             icon: const Icon(Icons.add_circle_outline, color: AppTheme.primary),
             label: const Text('Add New', style: TextStyle(color: AppTheme.primary)),
           ),
@@ -53,14 +51,8 @@ class VehicleTypesScreen extends StatelessWidget {
                               ),
                               Text('Capacity: ${vt['capacity']}', style: const TextStyle(fontWeight: FontWeight.w500)),
                               const SizedBox(width: 10),
-                              IconButton(
-                                icon: const Icon(Icons.edit, color: AppTheme.warning),
-                                onPressed: () => _showEditDialog(context, vt),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.delete, color: AppTheme.danger),
-                                onPressed: () => _confirmDelete(context, vt),
-                              ),
+                              IconButton(icon: const Icon(Icons.edit, color: AppTheme.warning), onPressed: () => _showVehicleTypeDialog(context, vt)),
+                              IconButton(icon: const Icon(Icons.delete, color: AppTheme.danger), onPressed: () => _confirmDelete(context, vt)),
                             ],
                           ),
                         ),
@@ -82,10 +74,6 @@ class VehicleTypesScreen extends StatelessWidget {
       ),
     );
   }
-
-  void _showAddDialog(BuildContext context) => _showVehicleTypeDialog(context, null);
-
-  void _showEditDialog(BuildContext context, Map<String, dynamic> vt) => _showVehicleTypeDialog(context, vt);
 
   void _showVehicleTypeDialog(BuildContext context, Map<String, dynamic>? existing) {
     final nameCtrl = TextEditingController(text: existing?['name']);
@@ -152,7 +140,6 @@ class RatesScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
-
     return Scaffold(
       appBar: AppBar(title: const Text('Manage Vehicle Rates')),
       body: ListView.builder(
@@ -223,7 +210,6 @@ class _SetRateScreenState extends State<SetRateScreen> {
               final i = entry.key;
               final rate = entry.value;
               final amountCtrl = TextEditingController(text: rate['amount']?.toString() ?? '10');
-
               return Card(
                 margin: const EdgeInsets.only(bottom: 12),
                 child: Padding(
@@ -231,25 +217,14 @@ class _SetRateScreenState extends State<SetRateScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          Text('Slot- ${i + 1}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                          const Spacer(),
-                          SizedBox(
-                            width: 100,
-                            child: TextField(
-                              decoration: const InputDecoration(hintText: 'Hour', contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8)),
-                            ),
-                          ),
-                        ],
-                      ),
+                      Text('Slot- ${i + 1}', style: const TextStyle(fontWeight: FontWeight.bold)),
                       const Divider(),
                       _RateRow('Start Time:', '${rate['start_hour']}'),
                       _RateRow('End Time:', '${rate['end_hour']}'),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text('Amount:'),
+                          const Text('Amount (Rs):'),
                           SizedBox(
                             width: 100,
                             child: TextField(
@@ -311,9 +286,7 @@ class _SetRateScreenState extends State<SetRateScreen> {
 
   void _updateRate(Map<String, dynamic> rate) async {
     await context.read<AppProvider>().upsertRate(rate);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Rate updated!'), backgroundColor: AppTheme.success),
-    );
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Rate updated!'), backgroundColor: AppTheme.success));
   }
 
   void _deleteRate(String id) async {
@@ -328,13 +301,10 @@ class _RateRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.symmetric(vertical: 4),
-    child: Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(label, style: const TextStyle(color: AppTheme.textSecondary)),
-        Text(value, style: const TextStyle(fontWeight: FontWeight.w500)),
-      ],
-    ),
+    child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+      Text(label, style: const TextStyle(color: AppTheme.textSecondary)),
+      Text(value, style: const TextStyle(fontWeight: FontWeight.w500)),
+    ]),
   );
 }
 
@@ -352,18 +322,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _loaded = false;
 
   final _fields = [
-    {'key': 'business_name', 'label': 'Please enter business name (H1)'},
-    {'key': 'address1', 'label': 'Please enter address line 1 (H2)'},
-    {'key': 'address2', 'label': 'Please enter address line 2 (H3)'},
-    {'key': 'phone', 'label': 'Please enter heading 4'},
-    {'key': 'heading5', 'label': 'Please enter heading 5'},
-    {'key': 'heading6', 'label': 'Please enter heading 6'},
-    {'key': 'footer1', 'label': 'Enter Footer 1'},
-    {'key': 'footer2', 'label': 'Enter Footer 2'},
-    {'key': 'location_identity', 'label': 'Enter Location Identity'},
+    {'key': 'business_name', 'label': 'Business name'},
+    {'key': 'address1', 'label': 'Address line 1'},
+    {'key': 'address2', 'label': 'Address line 2'},
+    {'key': 'phone', 'label': 'Phone number'},
     {'key': 'upi_id', 'label': 'UPI ID (for payment)'},
-    {'key': 'gst_percent', 'label': 'Enter GST %'},
-    {'key': 'max_recent_entries', 'label': 'Enter max items in recent entries (Default 10)'},
+    {'key': 'footer1', 'label': 'Footer message 1'},
+    {'key': 'footer2', 'label': 'Footer message 2'},
+    {'key': 'gst_percent', 'label': 'GST %'},
+    {'key': 'max_recent_entries', 'label': 'Max recent entries (Default 10)'},
   ];
 
   @override
@@ -397,81 +364,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
     newSettings['allow_amount_edit'] = _allowAmountEdit.toString();
     newSettings['allow_local_search'] = _allowLocalSearch.toString();
     await context.read<AppProvider>().saveSettings(newSettings);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Settings saved!'), backgroundColor: AppTheme.success),
-      );
-    }
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Settings saved!'), backgroundColor: AppTheme.success));
   }
 
   @override
   Widget build(BuildContext context) {
     if (!_loaded) return const Scaffold(body: Center(child: CircularProgressIndicator()));
-
     return Scaffold(
-      appBar: AppBar(title: const Text('Preferences'), leading: Navigator.canPop(context) ? const BackButton() : null),
+      appBar: AppBar(title: const Text('Settings'), leading: Navigator.canPop(context) ? const BackButton() : null),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Print Receipt Setting', style: TextStyle(fontWeight: FontWeight.w600)),
-            const SizedBox(height: 10),
-            Container(
-              height: 120,
-              width: 200,
-              decoration: BoxDecoration(
-                color: const Color(0xFFE0F0FF),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.image_outlined, color: Colors.grey, size: 40),
-                    Text('Logo Image', style: TextStyle(color: Colors.grey)),
-                  ],
-                ),
-              ),
-            ),
-            const Divider(height: 24),
-            const Text('Receipt Header & Footer', style: TextStyle(fontWeight: FontWeight.w600)),
-            const SizedBox(height: 10),
-
+            const Text('Business Information', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+            const SizedBox(height: 12),
             ..._fields.map((f) => Padding(
               padding: const EdgeInsets.only(bottom: 14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(f['label']!, style: const TextStyle(fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 6),
-                  TextField(controller: _controllers[f['key']!]),
-                ],
-              ),
+              child: TextField(controller: _controllers[f['key']!], decoration: InputDecoration(labelText: f['label'])),
             )),
-
             const Divider(height: 24),
-            const Text('Preferences', style: TextStyle(fontWeight: FontWeight.w600)),
-            const SizedBox(height: 10),
-
-            SwitchListTile(
-              value: _allowAmountEdit,
-              onChanged: (v) => setState(() => _allowAmountEdit = v),
-              title: const Text('Allow Amount Edit In Checkout'),
-              activeColor: AppTheme.primary,
-            ),
-            SwitchListTile(
-              value: _allowLocalSearch,
-              onChanged: (v) => setState(() => _allowLocalSearch = v),
-              title: const Text('Allow local search'),
-              activeColor: AppTheme.primary,
-            ),
-
+            const Text('Preferences', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+            const SizedBox(height: 8),
+            SwitchListTile(value: _allowAmountEdit, onChanged: (v) => setState(() => _allowAmountEdit = v), title: const Text('Allow Amount Edit In Checkout'), activeColor: AppTheme.primary),
+            SwitchListTile(value: _allowLocalSearch, onChanged: (v) => setState(() => _allowLocalSearch = v), title: const Text('Allow local search'), activeColor: AppTheme.primary),
             const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(onPressed: _save, child: const Text('Save')),
-            ),
+            SizedBox(width: double.infinity, child: ElevatedButton(onPressed: _save, child: const Text('Save'))),
             const SizedBox(height: 30),
           ],
         ),
@@ -481,108 +399,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
 }
 
 // ===================== PRINTER SCREEN =====================
-class PrinterScreen extends StatefulWidget {
+class PrinterScreen extends StatelessWidget {
   const PrinterScreen({super.key});
-  @override
-  State<PrinterScreen> createState() => _PrinterScreenState();
-}
-
-class _PrinterScreenState extends State<PrinterScreen> {
-  List<BluetoothDevice> _devices = [];
-  BluetoothDevice? _connected;
-  bool _isLoading = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadDevices();
-  }
-
-  Future<void> _loadDevices() async {
-    setState(() => _isLoading = true);
-    try {
-      final devices = await PrinterHelper.getDevices();
-      setState(() { _devices = devices; _isLoading = false; });
-    } catch (e) {
-      setState(() => _isLoading = false);
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Bluetooth Printer')),
       body: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(24),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            if (_connected != null) Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppTheme.entryCardBg,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: AppTheme.success),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.bluetooth_connected, color: AppTheme.success),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text('Connected: ${_connected!.name}', style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.success))),
-                  TextButton(
-                    onPressed: () async { await PrinterHelper.disconnect(); setState(() => _connected = null); },
-                    child: const Text('Disconnect', style: TextStyle(color: AppTheme.danger)),
-                  ),
-                ],
-              ),
-            ),
-
+            const Icon(Icons.bluetooth, size: 80, color: AppTheme.primary),
+            const SizedBox(height: 20),
+            const Text('Bluetooth Printer Setup', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Paired Devices', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                TextButton.icon(
-                  onPressed: _loadDevices,
-                  icon: const Icon(Icons.refresh, size: 16),
-                  label: const Text('Refresh'),
-                ),
-              ],
+            const Text(
+              'To connect your thermal printer:\n\n'
+              '1. Turn on your Bluetooth thermal printer\n'
+              '2. Go to Android Settings → Bluetooth\n'
+              '3. Pair your printer there\n'
+              '4. Come back to this app\n'
+              '5. The app will automatically use your paired printer when printing receipts',
+              style: TextStyle(fontSize: 15, height: 1.6, color: AppTheme.textSecondary),
             ),
-            const SizedBox(height: 8),
-
-            if (_isLoading) const Center(child: CircularProgressIndicator())
-            else if (_devices.isEmpty) const Center(child: Padding(
-              padding: EdgeInsets.all(20),
-              child: Text('No paired Bluetooth devices found.\nPair your thermal printer in Android settings first.',
-                  textAlign: TextAlign.center, style: TextStyle(color: AppTheme.textHint)),
-            ))
-            else Expanded(
-              child: ListView.builder(
-                itemCount: _devices.length,
-                itemBuilder: (_, i) {
-                  final device = _devices[i];
-                  final isConnected = _connected?.address == device.address;
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    child: ListTile(
-                      leading: Icon(Icons.print, color: isConnected ? AppTheme.success : AppTheme.textHint),
-                      title: Text(device.name ?? 'Unknown', style: const TextStyle(fontWeight: FontWeight.bold)),
-                      subtitle: Text(device.address ?? ''),
-                      trailing: isConnected
-                          ? const Text('Connected', style: TextStyle(color: AppTheme.success, fontWeight: FontWeight.w600))
-                          : ElevatedButton(
-                              onPressed: () async {
-                                final ok = await PrinterHelper.connect(device);
-                                if (ok) setState(() => _connected = device);
-                              },
-                              style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
-                              child: const Text('Connect'),
-                            ),
-                    ),
-                  );
-                },
-              ),
+            const SizedBox(height: 30),
+            ElevatedButton.icon(
+              onPressed: () {},
+              icon: const Icon(Icons.settings_bluetooth),
+              label: const Text('Open Bluetooth Settings'),
             ),
           ],
         ),
