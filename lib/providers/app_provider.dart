@@ -27,6 +27,36 @@ class AppProvider extends ChangeNotifier {
   // Currently parked count
   int get currentlyParked => _entries.where((e) => e['status'] == 'parked').length;
 
+  // Today's earnings - properly calculated
+  double get todayEarnings {
+    final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    return _entries
+        .where((e) =>
+            e['status'] == 'exited' &&
+            e['exit_time'] != null &&
+            (e['exit_time'] as String).startsWith(today))
+        .fold(0.0, (sum, e) => sum + ((e['fee'] as num?)?.toDouble() ?? 0.0));
+  }
+
+  // Today's total exits
+  int get todayExits {
+    final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    return _entries
+        .where((e) =>
+            e['status'] == 'exited' &&
+            e['exit_time'] != null &&
+            (e['exit_time'] as String).startsWith(today))
+        .length;
+  }
+
+  // Today's total entries
+  int get todayEntries {
+    final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    return _entries
+        .where((e) => (e['entry_time'] as String).startsWith(today))
+        .length;
+  }
+
   Future<void> init() async {
     _isLoading = true;
     notifyListeners();
@@ -42,7 +72,12 @@ class AppProvider extends ChangeNotifier {
   }
 
   // ===== ENTRIES =====
-  Future<void> loadEntries({String? status, String? dateFrom, String? dateTo, String? search}) async {
+  Future<void> loadEntries({
+    String? status,
+    String? dateFrom,
+    String? dateTo,
+    String? search,
+  }) async {
     _entries = await _db.getEntries(
       status: status,
       dateFrom: dateFrom,
@@ -62,15 +97,15 @@ class AppProvider extends ChangeNotifier {
     String paymentStatus = 'due',
     String? paymentMethod,
     double amountPaid = 0,
+    String? tokenNumber,
   }) async {
     final now = DateTime.now();
-    final tokenNum = await _db.getNextTokenNumber();
-    final token = tokenNum.toString().padLeft(4, '0');
+    final tokenNum = tokenNumber ?? (await _db.getNextTokenNumber()).toString().padLeft(4, '0');
     final id = _uuid.v4();
 
     final entry = {
       'id': id,
-      'token': token,
+      'token': tokenNum,
       'vehicle_number': vehicleNumber.toUpperCase(),
       'owner_name': ownerName ?? '',
       'mobile': mobile ?? '',
@@ -87,6 +122,7 @@ class AppProvider extends ChangeNotifier {
 
     await _db.insertEntry(entry);
     await loadEntries();
+    notifyListeners();
     return entry;
   }
 
@@ -94,28 +130,43 @@ class AppProvider extends ChangeNotifier {
     return await _db.findActiveEntry(vehicleOrToken);
   }
 
-  Future<Map<String, dynamic>> processExit(String entryId) async {
-    final db = DatabaseHelper.instance;
-    final entries = await db.getEntries();
+  Future<Map<String, dynamic>> processExit(
+    String entryId, {
+    double? manualFee,
+    String paymentStatus = 'paid',
+    String paymentMethod = 'CASH',
+  }) async {
+    final entries = await _db.getEntries();
     final entry = entries.firstWhere((e) => e['id'] == entryId);
 
     final entryTime = DateTime.parse(entry['entry_time']);
     final now = DateTime.now();
     final durationMinutes = now.difference(entryTime).inMinutes;
-    final vehicleTypeId = _getVehicleTypeId(entry['vehicle_type']);
-    final fee = await db.calculateFee(vehicleTypeId, durationMinutes);
+
+    // Calculate fee based on rates or use manual fee
+    double fee;
+    if (manualFee != null) {
+      fee = manualFee;
+    } else {
+      final vehicleTypeId = _getVehicleTypeId(entry['vehicle_type']);
+      fee = await _db.calculateFee(vehicleTypeId, durationMinutes);
+    }
 
     final updates = {
       'exit_time': now.toIso8601String(),
       'duration_minutes': durationMinutes,
       'fee': fee,
+      'amount_paid': fee,
       'status': 'exited',
-      'payment_status': 'paid',
+      'payment_status': paymentStatus,
+      'payment_method': paymentMethod,
     };
 
-    await db.updateEntry(entryId, updates);
+    await _db.updateEntry(entryId, updates);
+    // Reload ALL entries to refresh dashboard
     await loadEntries();
     await loadDashboardStats();
+    notifyListeners();
 
     return {...entry, ...updates};
   }
@@ -128,7 +179,14 @@ class AppProvider extends ChangeNotifier {
     return vt['id'];
   }
 
-  // ===== MEMBERS =====
+  // Calculate fee preview before checkout
+  Future<double> calculatePreviewFee(String vehicleType, DateTime entryTime) async {
+    final durationMinutes = DateTime.now().difference(entryTime).inMinutes;
+    final vehicleTypeId = _getVehicleTypeId(vehicleType);
+    return await _db.calculateFee(vehicleTypeId, durationMinutes);
+  }
+
+  // ===== MONTHLY PASS MEMBERS =====
   Future<void> loadMembers({String? search}) async {
     _members = await _db.getMembers(search: search);
     notifyListeners();
@@ -163,7 +221,24 @@ class AppProvider extends ChangeNotifier {
   bool isMemberExpired(Map<String, dynamic> member) {
     final expiry = member['expiry_date'];
     if (expiry == null) return false;
-    return DateTime.parse(expiry).isBefore(DateTime.now());
+    try {
+      return DateTime.parse(expiry).isBefore(DateTime.now());
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Monthly pass entry (free entry for pass members)
+  Future<Map<String, dynamic>> registerPassEntry(Map<String, dynamic> member) async {
+    return await registerEntry(
+      vehicleNumber: member['vehicle_number'],
+      ownerName: member['name'],
+      mobile: member['mobile'],
+      vehicleType: member['vehicle_type'],
+      paymentStatus: 'paid',
+      paymentMethod: 'MONTHLY PASS',
+      amountPaid: 0,
+    );
   }
 
   // ===== VEHICLE TYPES =====
@@ -217,6 +292,8 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  bool get showTokenField => _settings['show_token_field'] == 'true';
+
   // ===== ANALYTICS =====
   Future<void> loadDashboardStats({String? period}) async {
     final now = DateTime.now();
@@ -237,7 +314,7 @@ class AppProvider extends ChangeNotifier {
         dateFrom = DateFormat('yyyy-MM-01').format(now) + ' 00:00:00';
         dateTo = DateFormat('yyyy-MM-dd').format(now) + ' 23:59:59';
         break;
-      default: // today
+      default:
         dateFrom = DateFormat('yyyy-MM-dd').format(now) + ' 00:00:00';
         dateTo = DateFormat('yyyy-MM-dd').format(now) + ' 23:59:59';
     }
@@ -256,12 +333,26 @@ class AppProvider extends ChangeNotifier {
 
   String formatDateTime(String? isoString) {
     if (isoString == null) return '-';
-    final dt = DateTime.parse(isoString);
-    return DateFormat('dd/MM/yy hh:mm a').format(dt);
+    try {
+      final dt = DateTime.parse(isoString);
+      return DateFormat('dd/MM/yy hh:mm a').format(dt);
+    } catch (e) {
+      return '-';
+    }
   }
 
   String formatCurrency(dynamic amount) {
     if (amount == null) return 'Rs. 0';
     return 'Rs. ${(amount as num).toStringAsFixed(0)}';
+  }
+
+  String formatDate(String? isoString) {
+    if (isoString == null) return '-';
+    try {
+      final dt = DateTime.parse(isoString);
+      return DateFormat('dd/MM/yyyy').format(dt);
+    } catch (e) {
+      return '-';
+    }
   }
 }
