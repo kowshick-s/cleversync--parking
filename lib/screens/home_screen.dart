@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/app_provider.dart';
 import '../utils/app_theme.dart';
 import 'entry_screen.dart';
@@ -8,15 +9,9 @@ import 'exit_screen.dart';
 import 'members_screen.dart';
 import 'parking_pass_screen.dart';
 import 'parked_vehicles_screen.dart';
-import 'reports_screen.dart';
-import 'pass_reports_screen.dart';
-import 'dashboard_screen.dart';
-import 'analytics_screen.dart';
-import 'earning_report_screen.dart';
-import 'vehicle_types_screen.dart';
-import 'rates_screen.dart';
-import 'settings_screen.dart';
-import 'printer_screen.dart';
+import 'reports_screens.dart';
+import 'setup_screens.dart';
+import 'login_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -72,7 +67,10 @@ class _HomeContent extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(icon: const Icon(Icons.menu), onPressed: () => _showDrawer(context)),
+        leading: IconButton(
+          icon: const Icon(Icons.menu),
+          onPressed: () => _showDrawer(context),
+        ),
         title: Text(provider.businessName, style: const TextStyle(fontWeight: FontWeight.w700)),
         actions: [
           IconButton(
@@ -107,7 +105,6 @@ class _HomeContent extends StatelessWidget {
             ),
 
             const SizedBox(height: 20),
-
             _SectionTitle('Parking Entry & Exit'),
             const SizedBox(height: 12),
             GridView.count(
@@ -129,8 +126,7 @@ class _HomeContent extends StatelessWidget {
             ),
 
             const SizedBox(height: 20),
-
-            _SectionTitle('Parking Reports & Analysis'),
+            _SectionTitle('Reports & Analysis'),
             const SizedBox(height: 12),
             GridView.count(
               shrinkWrap: true,
@@ -155,7 +151,6 @@ class _HomeContent extends StatelessWidget {
             ),
 
             const SizedBox(height: 20),
-
             _SectionTitle('Setup'),
             const SizedBox(height: 12),
             GridView.count(
@@ -182,7 +177,6 @@ class _HomeContent extends StatelessWidget {
   }
 
   void _showDrawer(BuildContext context) {
-    final provider = context.read<AppProvider>();
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
@@ -191,18 +185,39 @@ class _HomeContent extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(provider.businessName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Text(context.read<AppProvider>().businessName,
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const Divider(),
-            ListTile(leading: const Icon(Icons.bluetooth, color: AppTheme.primary), title: const Text('Bluetooth Printer'),
-                onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const PrinterScreen())); }),
-            ListTile(leading: const Icon(Icons.settings, color: AppTheme.primary), title: const Text('Settings'),
-                onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())); }),
-            ListTile(leading: const Icon(Icons.logout, color: AppTheme.danger), title: const Text('Logout', style: TextStyle(color: AppTheme.danger)),
-                onTap: () async {
-                  final prefs = await SharedPreferences.of(context as Element);
-                  await prefs.setBool('is_logged_in', false);
-                  if (context.mounted) Navigator.of(context).pushNamedAndRemoveUntil('/login', (r) => false);
-                }),
+            ListTile(
+              leading: const Icon(Icons.bluetooth, color: AppTheme.primary),
+              title: const Text('Bluetooth Printer'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(context, MaterialPageRoute(builder: (_) => const PrinterScreen()));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.settings, color: AppTheme.primary),
+              title: const Text('Settings'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.logout, color: AppTheme.danger),
+              title: const Text('Logout', style: TextStyle(color: AppTheme.danger)),
+              onTap: () async {
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.setBool('is_logged_in', false);
+                if (context.mounted) {
+                  Navigator.of(context).pushAndRemoveUntil(
+                    MaterialPageRoute(builder: (_) => const LoginScreen()),
+                    (r) => false,
+                  );
+                }
+              },
+            ),
           ],
         ),
       ),
@@ -211,31 +226,25 @@ class _HomeContent extends StatelessWidget {
 }
 
 class _StatItem extends StatelessWidget {
-  final String label;
-  final String value;
+  final String label, value;
   const _StatItem({required this.label, required this.value});
-
   @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(value, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 4),
-        Text(label, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70, fontSize: 11)),
-      ],
-    );
-  }
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Text(value, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
+      const SizedBox(height: 4),
+      Text(label, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70, fontSize: 11)),
+    ],
+  );
 }
 
 class _SectionTitle extends StatelessWidget {
   final String title;
   const _SectionTitle(this.title);
-
   @override
-  Widget build(BuildContext context) {
-    return Text(title, style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w700, color: AppTheme.textPrimary));
-  }
+  Widget build(BuildContext context) => Text(title,
+      style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w700, color: AppTheme.textPrimary));
 }
 
 class _MenuCard extends StatelessWidget {
@@ -243,32 +252,26 @@ class _MenuCard extends StatelessWidget {
   final String label;
   final Color bg;
   final VoidCallback onTap;
-
   const _MenuCard({required this.icon, required this.label, required this.bg, required this.onTap});
 
   @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2))],
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 28, color: AppTheme.textSecondary),
-            const SizedBox(height: 8),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w500, color: AppTheme.textPrimary),
-            ),
-          ],
-        ),
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: Container(
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2))],
       ),
-    );
-  }
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 28, color: AppTheme.textSecondary),
+          const SizedBox(height: 8),
+          Text(label, textAlign: TextAlign.center,
+              style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w500, color: AppTheme.textPrimary)),
+        ],
+      ),
+    ),
+  );
 }
