@@ -8,22 +8,62 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
+
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.24.0'
           channel: 'stable'
+
       - name: Write local.properties
         run: |
           echo "flutter.sdk=$FLUTTER_ROOT" > android/local.properties
           echo "sdk.dir=$ANDROID_SDK_ROOT" >> android/local.properties
+
+      - name: Create app icons
+        run: |
+          python3 << 'PYEOF'
+          import struct, zlib, os
+
+          def create_png(size):
+              def write_chunk(t, d):
+                  c = t + d
+                  return struct.pack('>I', len(d)) + c + struct.pack('>I', zlib.crc32(c) & 0xffffffff)
+              sig = b'\x89PNG\r\n\x1a\n'
+              ihdr = write_chunk(b'IHDR', struct.pack('>IIBBBBB', size, size, 8, 2, 0, 0, 0))
+              rows = []
+              for y in range(size):
+                  row = b'\x00'
+                  for x in range(size):
+                      cx, cy = size//2, size//2
+                      dist = ((x-cx)**2 + (y-cy)**2)**0.5
+                      if dist < size*0.45:
+                          row += bytes([232, 139, 0])
+                      else:
+                          row += bytes([255, 255, 255])
+                  rows.append(row)
+              idat = write_chunk(b'IDAT', zlib.compress(b''.join(rows)))
+              iend = write_chunk(b'IEND', b'')
+              return sig + ihdr + idat + iend
+
+          for folder, size in [('mipmap-mdpi',48),('mipmap-hdpi',72),('mipmap-xhdpi',96),('mipmap-xxhdpi',144),('mipmap-xxxhdpi',192)]:
+              path = f'android/app/src/main/res/{folder}'
+              os.makedirs(path, exist_ok=True)
+              with open(f'{path}/ic_launcher.png', 'wb') as f:
+                  f.write(create_png(size))
+              print(f'Created {folder}/ic_launcher.png')
+          PYEOF
+
       - name: Get packages
         run: flutter pub get
+
       - name: Build APK
         run: flutter build apk --release
+
       - uses: actions/upload-artifact@v4
         with:
           name: Cleversync-Parking-APK
