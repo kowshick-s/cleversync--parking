@@ -8,29 +8,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
-
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.24.0'
           channel: 'stable'
-
-      - name: Create local.properties
+      - name: Write local.properties
         run: |
-          echo "flutter.sdk=$FLUTTER_ROOT" >> an@
-          echo "sdk.dir=$ANDROID_SDK_ROOT" >> an@
-
-      - run: flutter pub get
-
+          echo "flutter.sdk=$FLUTTER_ROOT" > android/local.properties
+          echo "sdk.dir=$ANDROID_SDK_ROOT" >> android/local.properties
+      - name: Get packages
+        run: flutter pub get
       - name: Build APK
-        run: flutter build apk --release --no-sh@
-
+        run: flutter build apk --release
       - uses: actions/upload-artifact@v4
         with:
           name: Cleversync-Parking-APK
-          path: build/app/outputs/flutter-apk/ap@
+          path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 30
