@@ -15,21 +15,12 @@ import 'login_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
-
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
-
-  final List<Widget> _pages = [
-    const _HomeContent(),
-    const EntryScreen(),
-    const ExitScreen(),
-    const MembersScreen(),
-    const SettingsScreen(),
-  ];
 
   @override
   void initState() {
@@ -42,7 +33,16 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(index: _currentIndex, children: _pages),
+      body: IndexedStack(
+        index: _currentIndex,
+        children: [
+          const _HomeContent(),
+          const EntryScreen(),
+          const ExitScreen(),
+          const MembersScreen(),
+          const SettingsScreen(),
+        ],
+      ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: (i) => setState(() => _currentIndex = i),
@@ -50,7 +50,7 @@ class _HomeScreenState extends State<HomeScreen> {
           BottomNavigationBarItem(icon: Icon(Icons.home_outlined), activeIcon: Icon(Icons.home), label: 'Home'),
           BottomNavigationBarItem(icon: Icon(Icons.login_outlined), activeIcon: Icon(Icons.login), label: 'Entry'),
           BottomNavigationBarItem(icon: Icon(Icons.logout_outlined), activeIcon: Icon(Icons.logout), label: 'Exit'),
-          BottomNavigationBarItem(icon: Icon(Icons.people_outline), activeIcon: Icon(Icons.people), label: 'Members'),
+          BottomNavigationBarItem(icon: Icon(Icons.card_membership_outlined), activeIcon: Icon(Icons.card_membership), label: 'Pass'),
           BottomNavigationBarItem(icon: Icon(Icons.settings_outlined), activeIcon: Icon(Icons.settings), label: 'Settings'),
         ],
       ),
@@ -67,11 +67,9 @@ class _HomeContent extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.menu),
-          onPressed: () => _showDrawer(context),
-        ),
-        title: Text(provider.businessName, style: const TextStyle(fontWeight: FontWeight.w700)),
+        leading: IconButton(icon: const Icon(Icons.menu), onPressed: () => _showDrawer(context)),
+        title: Text(provider.businessName,
+            style: const TextStyle(fontWeight: FontWeight.w700)),
         actions: [
           IconButton(
             icon: const Icon(Icons.bluetooth),
@@ -84,7 +82,7 @@ class _HomeContent extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Stats banner
+            // Stats banner - using correct provider getters
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(16),
@@ -97,9 +95,9 @@ class _HomeContent extends StatelessWidget {
                 children: [
                   _StatItem(label: 'Currently\nParked', value: '${provider.currentlyParked}'),
                   Container(width: 1, height: 40, color: Colors.white30),
-                  _StatItem(label: 'Today\nEntries', value: '${provider.dashboardStats['entries']?['total_entries'] ?? 0}'),
+                  _StatItem(label: 'Today\nEntries', value: '${provider.todayEntries}'),
                   Container(width: 1, height: 40, color: Colors.white30),
-                  _StatItem(label: 'Today\nRevenue', value: 'Rs.${provider.dashboardStats['entries']?['total_revenue']?.toStringAsFixed(0) ?? 0}'),
+                  _StatItem(label: 'Today\nEarnings', value: 'Rs.${provider.todayEarnings.toStringAsFixed(0)}'),
                 ],
               ),
             ),
@@ -116,11 +114,11 @@ class _HomeContent extends StatelessWidget {
               children: [
                 _MenuCard(icon: Icons.directions_car, label: 'Entry', bg: AppTheme.entryCardBg,
                     onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EntryScreen()))),
-                _MenuCard(icon: Icons.exit_to_app, label: 'Exit', bg: AppTheme.exitCardBg,
+                _MenuCard(icon: Icons.exit_to_app, label: 'Check Out', bg: AppTheme.exitCardBg,
                     onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ExitScreen()))),
-                _MenuCard(icon: Icons.card_membership, label: 'Pass\nMembers', bg: AppTheme.entryCardBg,
+                _MenuCard(icon: Icons.card_membership, label: 'Monthly\nPass', bg: AppTheme.passCardBg,
                     onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MembersScreen()))),
-                _MenuCard(icon: Icons.confirmation_num, label: 'Parking\nPass', bg: AppTheme.passCardBg,
+                _MenuCard(icon: Icons.confirmation_num, label: 'Pass\nTicket', bg: const Color(0xFFE3F2FD),
                     onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ParkingPassScreen()))),
               ],
             ),
@@ -168,7 +166,6 @@ class _HomeContent extends StatelessWidget {
                     onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()))),
               ],
             ),
-
             const SizedBox(height: 80),
           ],
         ),
@@ -191,18 +188,12 @@ class _HomeContent extends StatelessWidget {
             ListTile(
               leading: const Icon(Icons.bluetooth, color: AppTheme.primary),
               title: const Text('Bluetooth Printer'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(context, MaterialPageRoute(builder: (_) => const PrinterScreen()));
-              },
+              onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const PrinterScreen())); },
             ),
             ListTile(
               leading: const Icon(Icons.settings, color: AppTheme.primary),
               title: const Text('Settings'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
-              },
+              onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())); },
             ),
             ListTile(
               leading: const Icon(Icons.logout, color: AppTheme.danger),
@@ -212,9 +203,7 @@ class _HomeContent extends StatelessWidget {
                 await prefs.setBool('is_logged_in', false);
                 if (context.mounted) {
                   Navigator.of(context).pushAndRemoveUntil(
-                    MaterialPageRoute(builder: (_) => const LoginScreen()),
-                    (r) => false,
-                  );
+                    MaterialPageRoute(builder: (_) => const LoginScreen()), (r) => false);
                 }
               },
             ),

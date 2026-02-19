@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_provider.dart';
 import '../utils/app_theme.dart';
-import '../utils/printer_helper.dart';
 
 class ExitScreen extends StatefulWidget {
   const ExitScreen({super.key});
@@ -19,142 +18,212 @@ class _ExitScreenState extends State<ExitScreen> {
   bool _showQuickSetup = false;
   Map<String, dynamic>? _foundEntry;
   String? _error;
+  double? _previewFee;
+  String _paymentMethod = 'CASH';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   Future<void> _find() async {
     if (_searchController.text.trim().isEmpty) {
       setState(() => _error = 'Enter reg/token number');
       return;
     }
-    setState(() { _isLoading = true; _error = null; _foundEntry = null; });
+    setState(() {
+      _isLoading = true;
+      _error = null;
+      _foundEntry = null;
+      _previewFee = null;
+    });
 
     final provider = context.read<AppProvider>();
     final entry = await provider.findActiveEntry(_searchController.text.trim());
 
-    setState(() {
-      _isLoading = false;
-      _foundEntry = entry;
-      if (entry == null) _error = 'No active parking found for: ${_searchController.text.trim().toUpperCase()}';
-    });
+    if (entry != null) {
+      // Calculate preview fee
+      final entryTime = DateTime.parse(entry['entry_time']);
+      final fee = await provider.calculatePreviewFee(
+        entry['vehicle_type'] ?? 'Two Wheeler',
+        entryTime,
+      );
+      setState(() {
+        _foundEntry = entry;
+        _previewFee = fee;
+        _isLoading = false;
+      });
+    } else {
+      setState(() {
+        _isLoading = false;
+        _error = 'No active parking found for: ${_searchController.text.trim().toUpperCase()}';
+      });
+    }
   }
 
   Future<void> _processExit() async {
     if (_foundEntry == null) return;
 
-    // Security checklist
+    // Security checklist dialog
     bool bikeVerified = false;
     bool keyVerified = false;
     bool idVerified = false;
 
-    await showDialog(
+    final confirmed = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setS) => AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Row(
-            children: [
-              Icon(Icons.security, color: AppTheme.danger),
-              SizedBox(width: 8),
-              Text('Security Verification', style: TextStyle(fontSize: 16)),
-            ],
-          ),
+          title: const Row(children: [
+            Icon(Icons.security, color: AppTheme.danger),
+            SizedBox(width: 8),
+            Text('Security Check', style: TextStyle(fontSize: 16)),
+          ]),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('All checks are mandatory before releasing vehicle:', style: TextStyle(fontSize: 13)),
-              const SizedBox(height: 12),
+              const Text('Complete all checks before releasing vehicle:',
+                  style: TextStyle(fontSize: 13, color: AppTheme.textSecondary)),
+              const SizedBox(height: 10),
               CheckboxListTile(
                 value: bikeVerified,
                 onChanged: (v) => setS(() => bikeVerified = v!),
-                title: const Text('Bike number on vehicle matches record', style: TextStyle(fontSize: 13)),
+                title: const Text('Bike number matches record', style: TextStyle(fontSize: 13)),
                 activeColor: AppTheme.success,
                 controlAffinity: ListTileControlAffinity.leading,
+                contentPadding: EdgeInsets.zero,
               ),
               CheckboxListTile(
                 value: keyVerified,
                 onChanged: (v) => setS(() => keyVerified = v!),
-                title: const Text('Rider demonstrated working key (bike started)', style: TextStyle(fontSize: 13)),
+                title: const Text('Rider started bike with key', style: TextStyle(fontSize: 13)),
                 activeColor: AppTheme.success,
                 controlAffinity: ListTileControlAffinity.leading,
+                contentPadding: EdgeInsets.zero,
               ),
               CheckboxListTile(
                 value: idVerified,
                 onChanged: (v) => setS(() => idVerified = v!),
-                title: const Text('Rider identity verified (token matched)', style: TextStyle(fontSize: 13)),
+                title: const Text('Identity / token verified', style: TextStyle(fontSize: 13)),
                 activeColor: AppTheme.success,
                 controlAffinity: ListTileControlAffinity.leading,
+                contentPadding: EdgeInsets.zero,
+              ),
+              const SizedBox(height: 10),
+              // Payment method selection
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: Text('Payment Method:', style: TextStyle(fontWeight: FontWeight.w600)),
+              ),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 6,
+                children: ['CASH', 'UPI', 'CARD', 'OTHER'].map((m) => ChoiceChip(
+                  label: Text(m, style: const TextStyle(fontSize: 12)),
+                  selected: _paymentMethod == m,
+                  onSelected: (_) => setS(() => _paymentMethod = m),
+                  selectedColor: AppTheme.primaryLight,
+                )).toList(),
               ),
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
             ElevatedButton(
-              onPressed: (!bikeVerified || !keyVerified || !idVerified) ? null : () => Navigator.pop(ctx, true),
-              style: ElevatedButton.styleFrom(backgroundColor: bikeVerified && keyVerified && idVerified ? AppTheme.danger : Colors.grey),
+              onPressed: (bikeVerified && keyVerified && idVerified)
+                  ? () => Navigator.pop(ctx, true)
+                  : null,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: (bikeVerified && keyVerified && idVerified)
+                    ? AppTheme.danger
+                    : Colors.grey,
+              ),
               child: const Text('Release Vehicle'),
             ),
           ],
         ),
       ),
-    ).then((confirmed) async {
-      if (confirmed == true && mounted) {
-        setState(() => _isLoading = true);
-        final provider = context.read<AppProvider>();
-        final exitEntry = await provider.processExit(_foundEntry!['id']);
+    );
 
-        if (_printEnabled) {
-          await PrinterHelper.printExitTicket(entry: exitEntry, settings: provider.settings);
-        }
+    if (confirmed == true && mounted) {
+      setState(() => _isLoading = true);
+      final provider = context.read<AppProvider>();
 
-        if (mounted) {
-          setState(() { _isLoading = false; _foundEntry = null; });
-          _searchController.clear();
-          _showExitReceipt(exitEntry);
-        }
+      final exitEntry = await provider.processExit(
+        _foundEntry!['id'],
+        paymentMethod: _paymentMethod,
+        paymentStatus: 'paid',
+      );
+
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _foundEntry = null;
+          _previewFee = null;
+        });
+        _searchController.clear();
+        _showExitReceipt(exitEntry);
       }
-    });
+    }
   }
 
   void _showExitReceipt(Map<String, dynamic> entry) {
     final provider = context.read<AppProvider>();
+    final fee = (entry['fee'] as num?)?.toDouble() ?? 0;
+
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
-          children: [
-            Icon(Icons.check_circle, color: AppTheme.success),
-            SizedBox(width: 8),
-            Text('Exit Complete!'),
-          ],
-        ),
+        title: const Row(children: [
+          Icon(Icons.check_circle, color: AppTheme.success, size: 28),
+          SizedBox(width: 8),
+          Text('Exit Complete!'),
+        ]),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             _Row('Token', '#${entry['token']}'),
-            _Row('Vehicle', entry['vehicle_number']),
+            _Row('Vehicle', entry['vehicle_number'] ?? ''),
+            _Row('Entry', provider.formatDateTime(entry['entry_time'])),
+            _Row('Exit', provider.formatDateTime(entry['exit_time'])),
             _Row('Duration', provider.formatDuration(entry['duration_minutes'] ?? 0)),
+            _Row('Payment', _paymentMethod),
             const Divider(),
-            _Row('Fee', provider.formatCurrency(entry['fee']),
-                valueStyle: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppTheme.success)),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Total Fee', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                Text('Rs. ${fee.toStringAsFixed(0)}',
+                    style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppTheme.success)),
+              ],
+            ),
             if ((provider.settings['upi_id'] ?? '').isNotEmpty) ...[
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
               Container(
                 padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(border: Border.all(color: AppTheme.divider), borderRadius: BorderRadius.circular(8)),
-                child: Column(
-                  children: [
-                    const Text('Pay via UPI', style: TextStyle(fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 4),
-                    Text(provider.settings['upi_id'] ?? '', style: const TextStyle(fontFamily: 'monospace', color: AppTheme.primary)),
-                  ],
+                decoration: BoxDecoration(
+                  border: Border.all(color: AppTheme.divider),
+                  borderRadius: BorderRadius.circular(8),
+                  color: AppTheme.primaryLight,
                 ),
+                child: Column(children: [
+                  const Text('Pay via UPI', style: TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 4),
+                  Text(provider.settings['upi_id'] ?? '',
+                      style: const TextStyle(color: AppTheme.primary, fontWeight: FontWeight.bold)),
+                ]),
               ),
             ],
           ],
         ),
         actions: [
-          ElevatedButton(onPressed: () => Navigator.pop(context), child: const Text('Done')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Done'),
+          ),
         ],
       ),
     );
@@ -163,7 +232,10 @@ class _ExitScreenState extends State<ExitScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Check Out'), leading: Navigator.canPop(context) ? const BackButton() : null),
+      appBar: AppBar(
+        title: const Text('Check Out'),
+        leading: Navigator.canPop(context) ? const BackButton() : null,
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -172,34 +244,26 @@ class _ExitScreenState extends State<ExitScreen> {
             // Quick Setup
             GestureDetector(
               onTap: () => setState(() => _showQuickSetup = !_showQuickSetup),
-              child: Row(
-                children: [
-                  Text('Quick Setup', style: TextStyle(color: AppTheme.primary, fontWeight: FontWeight.w600)),
-                  Icon(_showQuickSetup ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, color: AppTheme.primary),
-                ],
-              ),
+              child: Row(children: [
+                Text('Quick Setup',
+                    style: const TextStyle(color: AppTheme.primary, fontWeight: FontWeight.w600)),
+                const Spacer(),
+                Icon(_showQuickSetup ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                    color: AppTheme.primary),
+              ]),
             ),
 
             if (_showQuickSetup) ...[
               const SizedBox(height: 10),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Do you want to print?'),
-                  Switch(value: _printEnabled, onChanged: (v) => setState(() => _printEnabled = v), activeColor: AppTheme.primary),
-                ],
-              ),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Allow local search'),
-                  Switch(value: _allowLocalSearch, onChanged: (v) => setState(() => _allowLocalSearch = v), activeColor: AppTheme.primary),
-                ],
-              ),
+              _ToggleRow('Do you want to print?', _printEnabled,
+                  (v) => setState(() => _printEnabled = v)),
+              _ToggleRow('Allow local search', _allowLocalSearch,
+                  (v) => setState(() => _allowLocalSearch = v)),
             ],
 
             const SizedBox(height: 16),
 
+            // Search card
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -210,54 +274,88 @@ class _ExitScreenState extends State<ExitScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Enter reg/token number *', style: TextStyle(fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 6),
+                  const Text('Enter reg/token number *',
+                      style: TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
                   TextField(
                     controller: _searchController,
                     textCapitalization: TextCapitalization.characters,
                     decoration: InputDecoration(
                       hintText: 'Enter reg/token number',
-                      hintStyle: TextStyle(color: _error != null ? AppTheme.danger : null),
+                      errorText: _error,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                         borderSide: BorderSide(color: _error != null ? AppTheme.danger : AppTheme.divider),
                       ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: _error != null ? AppTheme.danger : AppTheme.primary),
-                      ),
-                      suffixIcon: IconButton(icon: const Icon(Icons.qr_code_scanner), onPressed: () {}),
+                      suffixIcon: IconButton(
+                          icon: const Icon(Icons.qr_code_scanner), onPressed: () {}),
                     ),
                     onSubmitted: (_) => _find(),
                   ),
-                  if (_error != null) Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Text(_error!, style: const TextStyle(color: AppTheme.danger, fontSize: 12)),
+
+                  const SizedBox(height: 12),
+
+                  // Vehicle Type
+                  Row(children: [
+                    const Text('Vehicle Type :', style: TextStyle(color: AppTheme.primary, fontWeight: FontWeight.w600)),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: AppTheme.divider),
+                          borderRadius: BorderRadius.circular(30),
+                        ),
+                        child: const Text('Choose', style: TextStyle(color: AppTheme.textHint)),
+                      ),
+                    ),
+                  ]),
+
+                  const SizedBox(height: 12),
+
+                  // Date
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Date', style: TextStyle(fontWeight: FontWeight.w500)),
+                      Row(children: [
+                        const Icon(Icons.calendar_month, color: AppTheme.primary, size: 18),
+                        const SizedBox(width: 4),
+                        Text(DateFormatter.today(), style: const TextStyle(color: AppTheme.primary)),
+                      ]),
+                    ],
                   ),
 
                   const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () {},
-                          icon: const Icon(Icons.qr_code_scanner),
-                          label: const Text('Scan'),
-                          style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+
+                  // Scan + Find buttons
+                  Row(children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () {},
+                        icon: const Icon(Icons.barcode_reader, size: 18),
+                        label: const Text('Scan'),
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: _isLoading ? null : _find,
-                          style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
-                          child: _isLoading
-                              ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                              : const Text('Find'),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: _isLoading ? null : _find,
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
                         ),
+                        child: _isLoading
+                            ? const SizedBox(height: 18, width: 18,
+                                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                            : const Text('Find'),
                       ),
-                    ],
-                  ),
+                    ),
+                  ]),
                 ],
               ),
             ),
@@ -265,7 +363,11 @@ class _ExitScreenState extends State<ExitScreen> {
             // Found entry card
             if (_foundEntry != null) ...[
               const SizedBox(height: 16),
-              _FoundEntryCard(entry: _foundEntry!, onExit: _processExit),
+              _FoundEntryCard(
+                entry: _foundEntry!,
+                previewFee: _previewFee ?? 0,
+                onExit: _processExit,
+              ),
             ],
           ],
         ),
@@ -274,18 +376,33 @@ class _ExitScreenState extends State<ExitScreen> {
   }
 }
 
+class _ToggleRow extends StatelessWidget {
+  final String label;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+  const _ToggleRow(this.label, this.value, this.onChanged);
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    children: [
+      Text(label),
+      Switch(value: value, onChanged: onChanged, activeColor: AppTheme.primary),
+    ],
+  );
+}
+
 class _FoundEntryCard extends StatelessWidget {
   final Map<String, dynamic> entry;
+  final double previewFee;
   final VoidCallback onExit;
-  const _FoundEntryCard({required this.entry, required this.onExit});
+  const _FoundEntryCard({required this.entry, required this.previewFee, required this.onExit});
 
   @override
   Widget build(BuildContext context) {
     final provider = context.read<AppProvider>();
     final entryTime = DateTime.parse(entry['entry_time']);
-    final duration = DateTime.now().difference(entryTime);
-    final durationMin = duration.inMinutes;
-    final fee = 10.0 * ((durationMin / (24 * 60)).ceil().clamp(1, 999));
+    final durationMin = DateTime.now().difference(entryTime).inMinutes;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -298,34 +415,35 @@ class _FoundEntryCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(color: AppTheme.primaryLight, borderRadius: BorderRadius.circular(20)),
-                child: Text('#${entry['token']}', style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primary, fontSize: 16)),
-              ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(color: AppTheme.entryCardBg, borderRadius: BorderRadius.circular(20)),
-                child: const Text('ACTIVE', style: TextStyle(color: AppTheme.success, fontWeight: FontWeight.w600, fontSize: 12)),
-              ),
-            ],
-          ),
+          Row(children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(color: AppTheme.primaryLight, borderRadius: BorderRadius.circular(20)),
+              child: Text('#${entry['token']}',
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primary, fontSize: 16)),
+            ),
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(color: AppTheme.entryCardBg, borderRadius: BorderRadius.circular(20)),
+              child: const Text('PARKED',
+                  style: TextStyle(color: AppTheme.success, fontWeight: FontWeight.w600, fontSize: 12)),
+            ),
+          ]),
           const Divider(height: 20),
           _Row('Vehicle', entry['vehicle_number'] ?? ''),
           if ((entry['owner_name'] ?? '').isNotEmpty) _Row('Name', entry['owner_name']),
           if ((entry['mobile'] ?? '').isNotEmpty) _Row('Mobile', entry['mobile']),
           if ((entry['vehicle_type'] ?? '').isNotEmpty) _Row('Type', entry['vehicle_type']),
-          _Row('Entry', provider.formatDateTime(entry['entry_time'])),
+          _Row('Entry Time', provider.formatDateTime(entry['entry_time'])),
           _Row('Duration', provider.formatDuration(durationMin)),
           const Divider(height: 20),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('Estimated Fee', style: TextStyle(fontWeight: FontWeight.w600)),
-              Text('Rs. ${fee.toStringAsFixed(0)}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppTheme.success)),
+              const Text('Fee', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+              Text('Rs. ${previewFee.toStringAsFixed(0)}',
+                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppTheme.success)),
             ],
           ),
           const SizedBox(height: 16),
@@ -333,8 +451,13 @@ class _FoundEntryCard extends StatelessWidget {
             width: double.infinity,
             child: ElevatedButton(
               onPressed: onExit,
-              style: ElevatedButton.styleFrom(backgroundColor: AppTheme.danger, padding: const EdgeInsets.symmetric(vertical: 14)),
-              child: const Text('Process Exit & Print Receipt', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.danger,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+              ),
+              child: const Text('Checkout & Generate Receipt',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
             ),
           ),
         ],
@@ -344,21 +467,21 @@ class _FoundEntryCard extends StatelessWidget {
 }
 
 class _Row extends StatelessWidget {
-  final String label;
-  final String value;
-  final TextStyle? valueStyle;
-  const _Row(this.label, this.value, {this.valueStyle});
-
+  final String label, value;
+  const _Row(this.label, this.value);
   @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          SizedBox(width: 80, child: Text('$label:', style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13))),
-          Expanded(child: Text(value, style: valueStyle ?? const TextStyle(fontWeight: FontWeight.w600, fontSize: 13))),
-        ],
-      ),
-    );
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 3),
+    child: Row(children: [
+      SizedBox(width: 80, child: Text('$label:', style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13))),
+      Expanded(child: Text(value, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13))),
+    ]),
+  );
+}
+
+class DateFormatter {
+  static String today() {
+    final now = DateTime.now();
+    return '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}';
   }
 }
