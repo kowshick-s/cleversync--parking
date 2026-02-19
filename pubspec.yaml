@@ -1,0 +1,43 @@
+name: cleversync_parking
+description: Cleversync Parking Management App
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # Database
+  sqflite: ^2.3.0
+  path: ^1.9.0
+  
+  # State Management
+  provider: ^6.1.1
+  
+  # UI
+  google_fonts: ^6.1.0
+  fl_chart: ^0.66.0
+  
+  # Bluetooth Printing
+  blue_thermal_printer: ^1.1.5
+  
+  # Utilities
+  intl: ^0.19.0
+  shared_preferences: ^2.2.2
+  uuid: ^4.3.3
+  permission_handler: ^11.2.0
+  flutter_barcode_scanner: ^2.0.0
+  pdf: ^3.10.8
+  printing: ^5.12.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
